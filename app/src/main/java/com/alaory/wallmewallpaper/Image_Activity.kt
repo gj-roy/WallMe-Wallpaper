@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.RectF
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.AnimatedVectorDrawable
@@ -58,9 +59,9 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.internal.toHexString
-import okio.Path
 import okio.Path.Companion.toPath
-import kotlin.random.Random
+import kotlin.concurrent.thread
+import kotlin.math.max
 
 class Image_Activity(): AppCompatActivity(){
 
@@ -164,13 +165,16 @@ class Image_Activity(): AppCompatActivity(){
     override fun onCreate(bundle: Bundle?) {
         if(myDataLocal == null){
             myDataLocal = MYDATA;
+            if(MYDATA != null){
+                myDataLocal!!.Image_url = myDataLocal!!.Image_url.replace("http:","https:");// not gonna open unsecure connection
+            }
             thumbnail = THUMBNAIL;
         }
         Log.d("Image_Activity","Info url ${myDataLocal?.Image_url} name ${myDataLocal?.Image_name} thumbnail ${myDataLocal?.Image_thumbnail}");
         super.onCreate(bundle);
         //activity system and app bar
         this.supportActionBar!!.hide();
-        wallmewallpaper.HideSystemBar(window);
+        wallmewallpaper.HideSystemBar(window);//hide system bar
         //update screen orein
         wallmewallpaper.checkorein();
 
@@ -213,6 +217,7 @@ class Image_Activity(): AppCompatActivity(){
             this.state = BottomSheetBehavior.STATE_COLLAPSED;
             this.isHideable = false;
 
+
             val Views = LayoutInflater.from(this@Image_Activity).inflate(R.layout.bottom_sheet,null);
             bottomsheetfragment.addView(Views);
 
@@ -229,7 +234,7 @@ class Image_Activity(): AppCompatActivity(){
             saveWallpaperButton = Views.findViewById(R.id.save_imageButton);
             setfavorite = Views.findViewById(R.id.favorite_bottomsheet_floatingbutton);
             blockimage = Views.findViewById(R.id.block_bottomsheet_floatingbutton);
-            bottomsheetarrow = Views.findViewById<ImageButton>(R.id.pullbottom);
+            bottomsheetarrow = Views.findViewById(R.id.pullbottom);
 
             if(isOnDatabase())//check if image is in favorite list database
                 setfavorite!!.setImageResource(R.drawable.ic_heartfull);
@@ -243,9 +248,15 @@ class Image_Activity(): AppCompatActivity(){
             }
 
             url_post?.let{
-                it.setOnClickListener {
-                    val linkuri = Uri.parse("https://${myDataLocal!!.post_url}");
-                    this@Image_Activity.startActivity(Intent(Intent.ACTION_VIEW,linkuri));
+                var uriImage = Uri.parse(myDataLocal!!.Image_url);
+                if(uriImage.scheme == "content" || uriImage.scheme == "file"){
+                    it.visibility = View.GONE;
+                    (Views.findViewById(R.id.splitter_text) as TextView).visibility = View.GONE;
+                }else{
+                    it.setOnClickListener {
+                        val linkuri = Uri.parse("https://${myDataLocal!!.post_url}");
+                        this@Image_Activity.startActivity(Intent(Intent.ACTION_VIEW,linkuri));
+                    }
                 }
             }
 
@@ -308,7 +319,7 @@ class Image_Activity(): AppCompatActivity(){
                     val pref = getSharedPreferences("LiveWallpaper",Context.MODE_PRIVATE);
 
                     pref.edit().putString("Video_Path",MediaPath).apply();
-                    pref.edit().putString("Media_Type", myDataLocal!!.type.name.lowercase()).apply();
+                    pref.edit().putString("Media_Type", myDataLocal!!.type.name.lowercase()).apply();//tell the live wallpaper engine what mode to use
                     //save screen rect
 
                     pref.edit().putFloat("left",screenRect.left).apply();
@@ -328,17 +339,17 @@ class Image_Activity(): AppCompatActivity(){
                     val wpminfo = wpm.wallpaperInfo;
                     val videocomponent =ComponentName(applicationContext,livewallpaper::class.java);
 
-
                     if(wpminfo !=null && wpminfo.component == videocomponent){
-                        wpm.clear(WallpaperManager.FLAG_SYSTEM);//if there is a live wallpaper clear it
+                        livewallpaper.updatewallpaperservice();
+                    //wpm.clear(WallpaperManager.FLAG_SYSTEM);//if there is a live wallpaper clear it
+                    }else {
+                        val liveintent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+                        liveintent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, videocomponent);
+                        startActivity(liveintent);
                     }
 
 
-                    val liveintent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
-                    liveintent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, videocomponent);
 
-
-                    startActivity(liveintent);
 
                     return@setOnClickListener;
                 }
@@ -444,7 +455,7 @@ class Image_Activity(): AppCompatActivity(){
         else
             titlePost!!.visibility = View.GONE;
 
-        auther_post!!.setText("posted by: ${myDataLocal?.Image_auther}");
+        auther_post!!.setText(myDataLocal?.Image_auther);
         counter_image!!.isVisible = false;
 
 
@@ -673,6 +684,7 @@ class Image_Activity(): AppCompatActivity(){
                                         Image_Ratio(mybitmap!!.width, mybitmap!!.height);
                                 } else {
                                     val exoplayer = ExoPlayer.Builder(this@Image_Activity)
+                                        .setVideoScalingMode(2)
                                         .build()
                                     Full_video!!.addCallback(object : ZoomSurfaceView.Callback {
                                         override fun onZoomSurfaceCreated(view: ZoomSurfaceView) {
@@ -710,11 +722,11 @@ class Image_Activity(): AppCompatActivity(){
                             },
                             onCancel = {
                                 cricle_prograssBar?.visibility = View.GONE;
-                                Log.i("cricle_prograssBar", "cancled");
+                                Log.e("cricle_prograssBar", "cancled");
                             },
                             onError = { _, _ ->
                                 cricle_prograssBar?.visibility = View.GONE;
-                                Log.i("cricle_prograssBar", "error");
+                                Log.e("cricle_prograssBar", "error");
                             },
                             onStart = {
                                 cricle_prograssBar?.visibility = View.VISIBLE;
@@ -735,9 +747,10 @@ class Image_Activity(): AppCompatActivity(){
                 val bitmapfromfile : Drawable?;
                 if (Wallpaper_Uri.scheme == "content"){
                     loaded = true;
-                    when(myDataLocal!!.type){
+                    when(myDataLocal!!.type){// is video
                         UrlType.Video ->{
-                            val exoPlayer = ExoPlayer.Builder(this@Image_Activity).build();
+                            val exoPlayer = ExoPlayer.Builder(this@Image_Activity).build();//video player
+
                             Full_video!!.addCallback(object : ZoomSurfaceView.Callback {
                                 override fun onZoomSurfaceCreated(view: ZoomSurfaceView) {
                                     exoPlayer.setVideoSurface(Full_video!!.surface);
@@ -749,8 +762,9 @@ class Image_Activity(): AppCompatActivity(){
                                 }
                             });
 
-                            Full_video!!.visibility = View.VISIBLE;
+                            Full_video!!.visibility = View.VISIBLE;//switch to surface
                             Full_image!!.visibility = View.INVISIBLE;
+
                             exoPlayer.apply {
                                 addListener(object : Player.Listener{
                                     override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -758,11 +772,15 @@ class Image_Activity(): AppCompatActivity(){
                                         Full_video!!.setContentSize(videoSize.width.toFloat(),videoSize.height.toFloat())
                                     }
                                 })
-                                repeatMode = Player.REPEAT_MODE_ONE
+                                repeatMode = Player.REPEAT_MODE_ONE;//repeat video
 
+                                try{
+                                    val mediaItem = MediaItem.fromUri(Wallpaper_Uri);
+                                    exoPlayer.setMediaItem(mediaItem);
+                                }catch(e: Exception){
+                                    Log.e(this::class.java.simpleName,e.toString());
+                                }
 
-                                val mediaItem = MediaItem.fromUri(Wallpaper_Uri);
-                                exoPlayer.setMediaItem(mediaItem);
 
 
                                 volume = 0f;
@@ -773,14 +791,67 @@ class Image_Activity(): AppCompatActivity(){
                                 play();
                             }
                         }
-                        else ->{
-                            val cont = this.contentResolver.openInputStream(Wallpaper_Uri);
-                            bitmapfromfile = Drawable.createFromStream(cont,myDataLocal!!.Image_name);
-                            mybitmap = bitmapfromfile!!.toBitmap();
-                            Full_image!!.setImageDrawable(bitmapfromfile);
-                            (bitmapfromfile as? Animatable)?.start();
-                            myDataLocal!!.imageRatio =
-                                Image_Ratio(mybitmap!!.width, mybitmap!!.height);
+                        UrlType.Image -> {
+
+                            try {
+                                //get image info
+                                val bitmapWall = this.contentResolver.openFileDescriptor(Wallpaper_Uri,"r")!!.fileDescriptor;
+                                val bitmapOptions = BitmapFactory.Options().apply {
+                                    inJustDecodeBounds = true;//dont load bitmap
+                                }
+
+                                BitmapFactory.decodeFileDescriptor(bitmapWall,null,bitmapOptions);
+                                val deviceMaxWidth = resources.displayMetrics.widthPixels;
+                                val deviceMaxHeight = resources.displayMetrics.heightPixels;
+                                val imageWidth = bitmapOptions.outWidth;
+                                val imageHeight = bitmapOptions.outHeight;
+                                val ratio = max(imageWidth/deviceMaxWidth,imageHeight/deviceMaxHeight);
+
+
+                                if(ratio > 2){//load smaller image
+
+                                    BitmapFactory.Options().run {
+                                        inSampleSize = ratio;
+                                        BitmapFactory.decodeFileDescriptor(bitmapWall,null,this);
+                                    }.run {
+
+
+                                        Full_image!!.setImageBitmap(this);
+                                        myDataLocal!!.imageRatio =
+                                            Image_Ratio(this!!.width, this!!.height);
+
+                                        thread{
+                                            mybitmap =  BitmapFactory.decodeFileDescriptor(bitmapWall);
+                                        }.start()
+                                    }
+                                }else{
+                                    val outBitmap = BitmapFactory.decodeFileDescriptor(bitmapWall);
+                                    mybitmap = outBitmap;
+                                    Full_image!!.setImageBitmap(outBitmap);
+                                    myDataLocal!!.imageRatio =
+                                        Image_Ratio(mybitmap!!.width, mybitmap!!.height);
+                                }
+
+
+                            }catch (e:Exception){
+                                Log.e(this::class.java.simpleName,e.toString());
+                            }
+                        }
+
+                        else ->{// gif
+                            try {
+                                val cont = this.contentResolver.openInputStream(Wallpaper_Uri);
+                                bitmapfromfile =
+                                    Drawable.createFromStream(cont, myDataLocal!!.Image_name);
+                                mybitmap = bitmapfromfile!!.toBitmap();
+                                Full_image!!.setImageDrawable(bitmapfromfile);
+                                (bitmapfromfile as? Animatable)?.start();
+                                myDataLocal!!.imageRatio =
+                                    Image_Ratio(mybitmap!!.width, mybitmap!!.height);
+                            }catch (e:Exception){
+                                Log.e(this::class.java.simpleName,e.toString());
+                            }
+
                         }
                     }
                 }
@@ -794,37 +865,52 @@ class Image_Activity(): AppCompatActivity(){
                 return@setOnClickListener;
             }
 
-            val alert_setwallpaper = AlertDialog.Builder(this,R.style.TransparentDialog)
+            val alert_setwallpaper = AlertDialog.Builder(this,R.style.aletdia_log);
 
             val buttonlist = LayoutInflater.from(this).inflate(R.layout.setwallpaperalert,null) as ConstraintLayout;
             alert_setwallpaper.setView(buttonlist);
 
             val tempDialog = alert_setwallpaper.show();
-
             buttonlist.findViewById<Button>(R.id.SetHomeScreen).setOnClickListener {
+                if(mybitmap == null){
+                    Toast.makeText(this,"please wait for the image to load",Toast.LENGTH_LONG).show();
+                }
+                var toast = Toast.makeText(this,"Setting wallpaper to Homescreen please wait" ,Toast.LENGTH_SHORT);
+                toast.show();
                 setWallpaper(
                     this,
                     mybitmap!!,
                     Full_image!!.zoomedRect,
-                    setmode.HomeScreen
+                    setmode.HomeScreen,
+                    {toast.cancel();}
                 );
-                Toast.makeText(this,"Wallpaper set to Homescreen",Toast.LENGTH_LONG).show();
+
                 tempDialog.dismiss();
             }
 
             buttonlist.findViewById<Button>(R.id.SetLockScreen).setOnClickListener {
+                if(mybitmap == null){
+                    Toast.makeText(this,"please wait for the image to load",Toast.LENGTH_LONG).show();
+                }
+                var toast = Toast.makeText(this,"Setting wallpaper to lockscreen please wait",Toast.LENGTH_SHORT);
+                toast.show();
                 setWallpaper(
                     this,
                     mybitmap!!,
                     Full_image!!.zoomedRect,
-                    setmode.LockScreen
+                    setmode.LockScreen,
+                    {toast.cancel();}
                 );
-                Toast.makeText(this,"Wallpaper set to lockscreen",Toast.LENGTH_LONG).show();
+
                 tempDialog.dismiss();
             }
 
             buttonlist.findViewById<Button>(R.id.SetBothScreen).setOnClickListener {
+                if(mybitmap == null){
+                    Toast.makeText(this,"please wait for the image to load",Toast.LENGTH_LONG).show();
+                }
                 val temprect = Full_image!!.zoomedRect;
+                Toast.makeText(this,"Setting wallpaper to Both please wait",Toast.LENGTH_SHORT).show();
                 setWallpaper(
                     this,
                     mybitmap!!,
@@ -838,7 +924,7 @@ class Image_Activity(): AppCompatActivity(){
                     setmode.HomeScreen
                 );
 
-                Toast.makeText(this,"Wallpaper set to Both",Toast.LENGTH_LONG).show();
+
                 tempDialog.dismiss();
             }
 

@@ -2,23 +2,18 @@ package com.alaory.wallmewallpaper.wallpaper
 
 import android.app.Activity
 import android.app.WallpaperManager
-import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.RectF
-import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
-import com.alaory.wallmewallpaper.Image_Activity
+import androidx.core.content.ContextCompat
 import com.alaory.wallmewallpaper.Image_Info
 import com.alaory.wallmewallpaper.UrlType
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.concurrent.thread
@@ -30,7 +25,7 @@ enum class setmode{
     Both
 }
 
-fun setWallpaper(context: Context, wallBitmap: Bitmap, rectF: RectF, setScreen: setmode){
+fun setWallpaper(context: Context, wallBitmap: Bitmap, rectF: RectF, setScreen: setmode,callback : () -> Unit = {}){
     //set the wallpaper
     try{
         val screenWidth = context.resources.displayMetrics.widthPixels;
@@ -45,6 +40,15 @@ fun setWallpaper(context: Context, wallBitmap: Bitmap, rectF: RectF, setScreen: 
         }
 
         thread {
+
+//            val cropHint = Rect(
+//                (wallBitmap.width * rectF.left).toInt(),
+//                (wallBitmap.height * rectF.top).toInt(),
+//                (wallBitmap.width * rectF.right ).toInt(),
+//                (wallBitmap.height * rectF.bottom ).toInt()
+//            )
+
+
             val WallPaperBitmap : Bitmap = Bitmap.createBitmap(
                 wallBitmap,
                 (wallBitmap.width * rectF.left).toInt(),
@@ -63,6 +67,13 @@ fun setWallpaper(context: Context, wallBitmap: Bitmap, rectF: RectF, setScreen: 
                 }
                 else -> {}
             }
+            ContextCompat.getMainExecutor(context).execute {
+                callback();
+                Toast.makeText(context,"Wallpaper has been set",Toast.LENGTH_LONG).show();
+            }
+
+
+
         }.start()
 
     }catch (e:Exception){

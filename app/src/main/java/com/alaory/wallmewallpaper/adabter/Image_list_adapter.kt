@@ -1,5 +1,6 @@
 package com.alaory.wallmewallpaper.adabter
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
+import android.provider.MediaStore
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -34,9 +36,14 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.alaory.wallmewallpaper.*
+import com.alaory.wallmewallpaper.wallpaper.saveMedia
+import com.google.android.exoplayer2.util.UriUtil
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import okio.Path
 import okio.Path.Companion.toPath
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.max
 
 
 class Image_list_adapter(var listPosts: MutableList<Image_Info>, onimageclick : OnImageClick): RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -222,6 +229,7 @@ class Image_list_adapter(var listPosts: MutableList<Image_Info>, onimageclick : 
                     var postdrawable : Drawable? = null;
                     if(uriInfo.scheme == "content"){
                         val contentres = this.context?.contentResolver!!;
+
                         when(listPosts[holder.layoutPosition].type){
                             UrlType.Video ->{
                                 if(Build.VERSION.SDK_INT > 28){
@@ -239,22 +247,86 @@ class Image_list_adapter(var listPosts: MutableList<Image_Info>, onimageclick : 
                                         }
                                     }
                                 }else{//is sdk 28 and below
-                                    val mediaret = MediaMetadataRetriever();
-                                    mediaret.setDataSource(contentres.openFileDescriptor(uriInfo,"r")!!.fileDescriptor);
+                                    try {
+                                        val mediaret = MediaMetadataRetriever();
+                                        mediaret.setDataSource(contentres.openFileDescriptor(uriInfo,"r")!!.fileDescriptor);
 
-                                    postbitmap = mediaret.frameAtTime
+                                        postbitmap = mediaret.frameAtTime
+                                    }catch (ee : Exception){
+                                        Log.e(this@Image_list_adapter::class.java.simpleName,ee.toString());
+                                    }
+
                                 }
 
                             }
-                            else ->{//is a gif or an image
-                                postdrawable = Drawable.createFromStream(contentres.openInputStream(uriInfo),listPosts[holder.layoutPosition].Image_name);
-                                (postdrawable as? Animatable)?.start();
+                            UrlType.Image -> {
+                                try {
+                                    try{
+                                        val path = context!!.getExternalFilesDir(Environment.DIRECTORY_PICTURES)!!.path + "/${listPosts[holder.pos].Image_name}";
+                                        val bitacch = BitmapFactory.decodeFile(path);
+                                        if(bitacch == null){
+                                            throw Exception()
+                                        }
+                                        postbitmap = bitacch;
+                                    }catch (_ : Exception){
+                                        //get image info
+                                        val bitmapWall = contentres.openFileDescriptor(uriInfo,"r")!!.fileDescriptor;
+                                        val bitmapOptions = BitmapFactory.Options().apply {
+                                            inJustDecodeBounds = true;//dont load bitmap
+                                        }
+
+                                        BitmapFactory.decodeFileDescriptor(bitmapWall,null,bitmapOptions);
+                                        val deviceMaxWidth = context!!.resources.displayMetrics.widthPixels / 4;
+                                        val deviceMaxHeight = context!!.resources.displayMetrics.heightPixels / 4;
+                                        val imageWidth = bitmapOptions.outWidth;
+                                        val imageHeight = bitmapOptions.outHeight;
+                                        val ratio = max(imageWidth/deviceMaxWidth,imageHeight/deviceMaxHeight);
+
+
+                                        if(ratio > 2){//image is large load smaller image
+
+                                            BitmapFactory.Options().run {
+                                                inSampleSize = ratio;
+                                                BitmapFactory.decodeFileDescriptor(bitmapWall,null,this);
+                                            }.run {
+                                                postbitmap = this;
+                                                val fi = context?.let {
+                                                    val path = it.getExternalFilesDir(Environment.DIRECTORY_PICTURES)!!.path;
+                                                    val file = File(path,listPosts[holder.pos].Image_name);
+                                                    val fst = FileOutputStream(file);
+                                                    val bitcompress = this.compress(Bitmap.CompressFormat.PNG,50,fst);
+                                                    fst.flush();
+                                                    fst.close();
+                                                }
+                                            }
+                                        }else{
+                                            postbitmap = BitmapFactory.decodeFileDescriptor(bitmapWall);
+                                        }
+                                    }
+
+                                }catch (e:Exception){
+                                    Log.e(this::class.java.simpleName,e.toString());
+                                }
+                            }
+                            else ->{//gif
+                                try {
+                                    postdrawable = Drawable.createFromStream(contentres.openInputStream(uriInfo),listPosts[holder.layoutPosition].Image_name);
+
+                                    (postdrawable as? Animatable)?.start();
+                                }catch (ee : Exception){
+                                    Log.e(this@Image_list_adapter::class.java.simpleName,ee.toString());
+                                }
+
                             }
                         }
                     }else{//is a "file" scheme
-                        val inputstreamfile = uriInfo.toFile().inputStream();
-                        postbitmap = BitmapFactory.decodeStream(inputstreamfile);
-                        inputstreamfile.close();
+                        try{
+                            val inputstreamfile = uriInfo.toFile().inputStream();
+                            postbitmap = BitmapFactory.decodeStream(inputstreamfile);
+                            inputstreamfile.close();
+                        }catch (ee : Exception){
+                            Log.e(this@Image_list_adapter::class.java.simpleName,ee.toString());
+                        }
                     }
                     updateCallback(postbitmap,postdrawable);
                 }
